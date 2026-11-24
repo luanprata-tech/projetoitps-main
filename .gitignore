@@ -20,6 +20,18 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Variáveis de ambiente e arquivos locais sensíveis
+.env
+.env.*
+!.env.example
+
+# Storage local de desenvolvimento e artefatos Python
+storage_projetos/
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
