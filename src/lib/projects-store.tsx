@@ -89,6 +89,7 @@ interface Ctx {
   removeStatus: (id: string, replacement: string) => Promise<void>;
   add: (p: ProjetoDados, relatorioFile?: File | null) => Promise<void>;
   updateOverview: (id: string, data: ProjetoDados, relatorioFile?: File | null) => Promise<void>;
+  removeProject: (id: string) => Promise<void>;
   uploadRelatorio: (projetoId: string, file: File) => Promise<void>;
   downloadRelatorio: (projetoId: string, filename: string) => Promise<void>;
   deleteRelatorio: (projetoId: string) => Promise<void>;
@@ -249,6 +250,12 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
       updated = await apiClient.uploadRelatorio(id, relatorioFile);
     }
     setProjetos((prev) => prev.map((p) => (p.id === id ? updated : p)));
+    setSyncError(null);
+  };
+
+  const removeProject: Ctx["removeProject"] = async (id) => {
+    await apiClient.deleteProject(id);
+    setProjetos((prev) => prev.filter((p) => p.id !== id));
     setSyncError(null);
   };
 
@@ -537,6 +544,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
         removeStatus,
         add,
         updateOverview,
+        removeProject,
         uploadRelatorio,
         downloadRelatorio,
         deleteRelatorio,

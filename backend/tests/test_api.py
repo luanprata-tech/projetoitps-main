@@ -1,7 +1,7 @@
 """Testes automatizados da API FastAPI, autenticação JWT e regras de negócio do ProjetosITPS."""
 
 from collections.abc import Generator
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 import jwt
@@ -388,7 +388,18 @@ def test_project_folder_creation_and_file_upload_download(client: TestClient, tm
     ).json()
     pid = created["id"]
     pasta = created["pasta"]
-    assert pasta.startswith("analise-de-aguas-amazonicas-")
+    today_iso = date.today().isoformat()
+    assert pasta == f"analise-de-aguas-amazonicas-{today_iso}"
+    assert pid not in pasta
+
+    # Projeto com o mesmo título no mesmo dia recebe o ID na pasta para evitar colisão.
+    duplicate = client.post(
+        "/api/projetos",
+        headers=headers,
+        json={"titulo": "Análise de Águas Amazônicas"},
+    ).json()
+    assert duplicate["id"] != pid
+    assert duplicate["pasta"] == f"analise-de-aguas-amazonicas-{today_iso}-{duplicate['id']}"
 
     # Verifica que a pasta do projeto foi criada automaticamente no diretório configurado.
     project_dir = tmp_path / "storage" / pasta
@@ -412,11 +423,11 @@ def test_project_folder_creation_and_file_upload_download(client: TestClient, tm
     assert dl_rel.status_code == 200
     assert dl_rel.content == b"%PDF-1.4 conteudo teste"
 
-    # Upload, download e remoção de anexos no acompanhamento temporal.
+    # Upload, download e remoção de anexos no acompanhamento temporal (pasta nomeada pela data).
     acomp = client.post(
         f"/api/projetos/{pid}/acompanhamentos",
         headers=headers,
-        json={"descricao": "Visita técnica"},
+        json={"data": "2026-10-15", "descricao": "Visita técnica"},
     ).json()
     up_anexo = client.post(
         f"/api/projetos/{pid}/acompanhamentos/{acomp['id']}/anexos",
@@ -427,7 +438,19 @@ def test_project_folder_creation_and_file_upload_download(client: TestClient, tm
     anexos_lista = up_anexo.json()["anexosLista"]
     assert len(anexos_lista) == 1
     assert up_anexo.json()["anexos"] == 1
+    assert anexos_lista[0]["caminho"] == f"{pasta}/acompanhamentos/2026-10-15/ata.txt"
+    assert (project_dir / "acompanhamentos" / "2026-10-15" / "ata.txt").is_file()
     anexo_id = anexos_lista[0]["id"]
+
+    # Alterar a data do registro move os anexos para a pasta da nova data.
+    moved = client.patch(
+        f"/api/projetos/{pid}/acompanhamentos/{acomp['id']}",
+        headers=headers,
+        json={"data": "2026-11-20"},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["anexosLista"][0]["caminho"] == f"{pasta}/acompanhamentos/2026-11-20/ata.txt"
+    assert (project_dir / "acompanhamentos" / "2026-11-20" / "ata.txt").is_file()
 
     dl_anexo = client.get(
         f"/api/projetos/{pid}/acompanhamentos/{acomp['id']}/anexos/{anexo_id}/download",
@@ -442,6 +465,22 @@ def test_project_folder_creation_and_file_upload_download(client: TestClient, tm
     )
     assert del_anexo.status_code == 200
     assert del_anexo.json()["anexos"] == 0
+
+    # Novo upload seguido da exclusão do acompanhamento deve remover o arquivo e a pasta da data.
+    up_again = client.post(
+        f"/api/projetos/{pid}/acompanhamentos/{acomp['id']}/anexos",
+        headers=headers,
+        files=[("files", ("nota.txt", b"Nota final", "text/plain"))],
+    )
+    assert up_again.status_code == 200
+    assert (project_dir / "acompanhamentos" / "2026-11-20" / "nota.txt").is_file()
+
+    del_acomp = client.delete(
+        f"/api/projetos/{pid}/acompanhamentos/{acomp['id']}",
+        headers=headers,
+    )
+    assert del_acomp.status_code == 204
+    assert not (project_dir / "acompanhamentos" / "2026-11-20").exists()
 
     del_rel = client.delete(f"/api/projetos/{pid}/relatorio", headers=headers)
     assert del_rel.status_code == 200
@@ -542,4 +581,36 @@ def test_three_roles_rbac_admin_editor_and_readonly_user(client: TestClient) -> 
         ).status_code
         == 403
     )
+    assert client.delete(f"/api/projetos/{pid}", headers=user_headers).status_code == 403
     assert client.get("/api/users", headers=user_headers).status_code == 403
+
+
+def test_delete_project_keeps_folder_and_files_on_disk(client: TestClient, tmp_path) -> None:
+    headers = _login_headers(
+        client,
+        settings.default_admin_username,
+        settings.default_admin_password,
+    )
+    created = client.post(
+        "/api/projetos",
+        headers=headers,
+        json={"titulo": "Projeto Para Excluir"},
+    ).json()
+    pid = created["id"]
+    pasta = created["pasta"]
+
+    up = client.post(
+        f"/api/projetos/{pid}/relatorio",
+        headers=headers,
+        files={"file": ("relatorio_preservado.pdf", b"PDF-MANTER", "application/pdf")},
+    )
+    assert up.status_code == 200
+
+    # Exclui o projeto do banco e valida que a pasta e o arquivo continuam intactos no disco.
+    del_resp = client.delete(f"/api/projetos/{pid}", headers=headers)
+    assert del_resp.status_code == 204
+    assert client.get(f"/api/projetos/{pid}", headers=headers).status_code == 404
+
+    project_dir = tmp_path / "storage" / pasta
+    assert project_dir.is_dir()
+    assert (project_dir / "relatorio-final" / "relatorio_preservado.pdf").is_file()

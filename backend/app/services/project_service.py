@@ -28,9 +28,12 @@ from app.schemas.project import (
     ProjetoOverviewIn,
 )
 from app.services.storage_service import (
+    build_acompanhamento_folder_name,
     build_project_folder_name,
     delete_stored_file,
     ensure_project_folders,
+    move_stored_file,
+    remove_acompanhamento_folder_if_empty,
     resolve_stored_file,
     save_uploaded_file,
 )
@@ -96,10 +99,20 @@ def _resolve_status_id(db: Session, requested_status_id: str | None) -> str:
     return first.id
 
 
+def _list_existing_project_folders(db: Session) -> set[str]:
+    """Retorna os nomes de pastas já associados a projetos no banco para evitar colisões."""
+    rows = db.scalars(select(Projeto.pasta).where(Projeto.pasta.is_not(None))).all()
+    return {folder for folder in rows if folder}
+
+
 def _ensure_project_folder_assigned(db: Session, projeto: Projeto) -> str:
     """Garante que o projeto tenha uma pasta associada no banco e criada no servidor de arquivos."""
     if not projeto.pasta:
-        projeto.pasta = build_project_folder_name(projeto.titulo, projeto.id)
+        projeto.pasta = build_project_folder_name(
+            projeto.titulo,
+            projeto.id,
+            existing_folders=_list_existing_project_folders(db),
+        )
         db.flush()
     ensure_project_folders(projeto.pasta)
     return projeto.pasta
@@ -108,7 +121,11 @@ def _ensure_project_folder_assigned(db: Session, projeto: Projeto) -> str:
 def create_project(db: Session, payload: ProjetoOverviewIn) -> Projeto:
     """Cria um novo projeto e cria automaticamente sua pasta dedicada no servidor de arquivos."""
     projeto_id = _new_id()
-    pasta = build_project_folder_name(payload.titulo, projeto_id)
+    pasta = build_project_folder_name(
+        payload.titulo,
+        projeto_id,
+        existing_folders=_list_existing_project_folders(db),
+    )
     ensure_project_folders(pasta)
 
     projeto = Projeto(
@@ -166,6 +183,14 @@ def update_project_overview(
 
     db.commit()
     return get_project_or_404(db, projeto.id)
+
+
+def delete_project(db: Session, projeto_id: str) -> None:
+    """Remove o projeto do banco (com cascade nos filhos), preservando a pasta física no servidor."""
+    projeto = _ensure_project_exists(db, projeto_id)
+    # Regra de negócio: a exclusão remove apenas os registros do banco, mantendo a pasta e arquivos na rede.
+    db.delete(projeto)
+    db.commit()
 
 
 def create_meta(db: Session, projeto_id: str, payload: MetaCreate) -> Meta:
@@ -277,36 +302,8 @@ def update_acompanhamento(
     item_id: str,
     payload: AcompanhamentoUpdate,
 ) -> Acompanhamento:
-    """Atualiza parcialmente um registro de acompanhamento temporal."""
-    item = db.scalars(
-        select(Acompanhamento).where(
-            Acompanhamento.id == item_id,
-            Acompanhamento.projeto_id == projeto_id,
-        )
-    ).first()
-    if item is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND,
-            detail="Registro de acompanhamento não encontrado.",
-        )
-
-    fields = payload.model_fields_set
-    if "data" in fields:
-        item.data = payload.data
-    if "descricao" in fields and payload.descricao is not None:
-        item.descricao = payload.descricao
-    if "justificativa" in fields and payload.justificativa is not None:
-        item.justificativa = payload.justificativa
-    if "anexos" in fields and payload.anexos is not None:
-        item.anexos = payload.anexos
-
-    db.commit()
-    db.refresh(item)
-    return item
-
-
-def delete_acompanhamento(db: Session, projeto_id: str, item_id: str) -> None:
-    """Remove um registro de acompanhamento temporal e seus arquivos anexados em disco."""
+    """Atualiza parcialmente um registro de acompanhamento temporal (movendo anexos se a data mudar)."""
+    projeto = _ensure_project_exists(db, projeto_id)
     item = db.scalars(
         select(Acompanhamento)
         .options(selectinload(Acompanhamento.anexos_lista))
@@ -320,10 +317,64 @@ def delete_acompanhamento(db: Session, projeto_id: str, item_id: str) -> None:
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail="Registro de acompanhamento não encontrado.",
         )
+
+    fields = payload.model_fields_set
+    date_changed = "data" in fields and item.data != payload.data
+    if "data" in fields:
+        item.data = payload.data
+    if "descricao" in fields and payload.descricao is not None:
+        item.descricao = payload.descricao
+    if "justificativa" in fields and payload.justificativa is not None:
+        item.justificativa = payload.justificativa
+    if "anexos" in fields and payload.anexos is not None:
+        item.anexos = payload.anexos
+
+    # Mantém a pasta de anexos sincronizada com a nova data do registro.
+    if date_changed and item.anexos_lista:
+        folder = _ensure_project_folder_assigned(db, projeto)
+        new_subfolder = f"acompanhamentos/{build_acompanhamento_folder_name(item.data)}"
+        for anexo in item.anexos_lista:
+            anexo.caminho = move_stored_file(anexo.caminho, folder, new_subfolder)
+
+    db.commit()
+    return db.scalars(
+        select(Acompanhamento)
+        .options(selectinload(Acompanhamento.anexos_lista))
+        .where(Acompanhamento.id == item.id)
+    ).one()
+
+
+def delete_acompanhamento(db: Session, projeto_id: str, item_id: str) -> None:
+    """Remove um registro de acompanhamento temporal, seus arquivos e a pasta da data no servidor."""
+    projeto = _ensure_project_exists(db, projeto_id)
+    item = db.scalars(
+        select(Acompanhamento)
+        .options(selectinload(Acompanhamento.anexos_lista))
+        .where(
+            Acompanhamento.id == item_id,
+            Acompanhamento.projeto_id == projeto_id,
+        )
+    ).first()
+    if item is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Registro de acompanhamento não encontrado.",
+        )
+
+    subfolders_to_clean = {build_acompanhamento_folder_name(item.data)}
     for anexo in item.anexos_lista:
+        # Coleta também a subpasta real onde o arquivo estava (cobre pastas legadas por ID).
+        parts = PurePosixPath(anexo.caminho.replace("\\", "/")).parts
+        if len(parts) >= 3 and parts[1] == "acompanhamentos":
+            subfolders_to_clean.add(parts[2])
         delete_stored_file(anexo.caminho)
+
     db.delete(item)
     db.commit()
+
+    if projeto.pasta:
+        for subfolder_name in subfolders_to_clean:
+            remove_acompanhamento_folder_if_empty(projeto.pasta, subfolder_name)
 
 
 def upload_project_relatorio(
@@ -393,10 +444,11 @@ def upload_acompanhamento_anexos(
         )
 
     folder = _ensure_project_folder_assigned(db, projeto)
+    date_folder = build_acompanhamento_folder_name(item.data)
     for upload in uploads:
         original_name, relative_path, size = save_uploaded_file(
             folder,
-            f"acompanhamentos/{item.id}",
+            f"acompanhamentos/{date_folder}",
             upload,
         )
         item.anexos_lista.append(

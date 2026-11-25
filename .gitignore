@@ -28,15 +28,27 @@ dist-ssr
 # Storage local de desenvolvimento e artefatos Python
 storage_projetos/
 backend/.venv/
+.venv/
 **/__pycache__/
 *.py[cod]
+*$py.class
+**/.pytest_cache/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage/
+*.db
+*.sqlite
+*.sqlite3
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
+desktop.ini
 *.suo
 *.ntvs*
 *.njsproj

@@ -16,7 +16,13 @@ import { useProjects, fmtDate, type Projeto, type ProjetoDados } from "@/lib/pro
 import { useAuth } from "@/lib/auth-store";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -61,12 +67,16 @@ function Index() {
     reload,
     add,
     updateOverview,
+    removeProject,
     uploadRelatorio,
     downloadRelatorio,
     deleteRelatorio,
   } = useProjects();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Projeto | null>(null);
+  const [deleting, setDeleting] = useState<Projeto | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const total = projetos.length,
     ativos = projetos.filter((p) => !p.relatorio).length;
   const bolsistas = projetos.reduce((a, p) => a + p.bolsistas.length, 0);
@@ -135,8 +145,8 @@ function Index() {
             <col style={{ width: "9%" }} />
             <col style={{ width: "12%" }} />
             <col style={{ width: "6%" }} />
-            <col style={{ width: canEdit ? "15.5%" : "19.5%" }} />
-            {canEdit && <col style={{ width: "4%" }} />}
+            <col style={{ width: canEdit ? "13.5%" : "19.5%" }} />
+            {canEdit && <col style={{ width: "6%" }} />}
           </colgroup>
           <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
@@ -262,15 +272,29 @@ function Index() {
                 <td className="whitespace-normal break-words px-4 py-4 text-muted-foreground">{p.impacto}</td>
                 {canEdit && (
                   <td className="px-1 py-4">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Editar projeto"
-                      aria-label={`Editar projeto: ${p.titulo}`}
-                      onClick={() => setEditing(p)}
-                    >
-                      <Pencil />
-                    </Button>
+                    <div className="flex items-center justify-center gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Editar projeto"
+                        aria-label={`Editar projeto: ${p.titulo}`}
+                        onClick={() => setEditing(p)}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Excluir projeto"
+                        aria-label={`Excluir projeto: ${p.titulo}`}
+                        onClick={() => {
+                          setDeleting(p);
+                          setDeleteError("");
+                        }}
+                      >
+                        <Trash2 className="text-destructive" />
+                      </Button>
+                    </div>
                   </td>
                 )}
               </tr>
@@ -308,6 +332,53 @@ function Index() {
             setEditing(null);
           }}
         />
+      )}
+      {deleting && (
+        <Dialog open onOpenChange={(v) => !v && !deleteBusy && setDeleting(null)}>
+          <DialogContent className="w-[calc(100%-2rem)] max-w-md rounded-lg bg-card">
+            <DialogHeader>
+              <DialogTitle className="font-display text-xl tracking-normal">
+                Excluir projeto
+              </DialogTitle>
+              <DialogDescription>
+                Tem certeza que deseja excluir o projeto <strong>{deleting.titulo}</strong> do
+                sistema? A pasta e os arquivos salvos na pasta compartilhada do servidor serão
+                mantidos.
+              </DialogDescription>
+            </DialogHeader>
+            {deleteError && (
+              <p role="alert" className="text-sm text-destructive">
+                {deleteError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setDeleting(null)} disabled={deleteBusy}>
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={deleteBusy}
+                onClick={async () => {
+                  setDeleteBusy(true);
+                  setDeleteError("");
+                  try {
+                    await removeProject(deleting.id);
+                    setDeleting(null);
+                  } catch (err) {
+                    setDeleteError(
+                      err instanceof Error ? err.message : "Não foi possível excluir o projeto.",
+                    );
+                  } finally {
+                    setDeleteBusy(false);
+                  }
+                }}
+              >
+                <Trash2 />
+                {deleteBusy ? "Excluindo..." : "Confirmar exclusão"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

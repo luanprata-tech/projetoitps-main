@@ -1,7 +1,9 @@
 """Serviço de armazenamento em sistema de arquivos para pastas de projetos e anexos."""
 
+from datetime import date
 from pathlib import Path
 import re
+import shutil
 import unicodedata
 from uuid import uuid4
 
@@ -27,9 +29,33 @@ def _slugify(value: str, max_length: int = 60) -> str:
     return (cleaned[:max_length].rstrip("-")) or "projeto"
 
 
-def build_project_folder_name(titulo: str, projeto_id: str) -> str:
-    """Combina o título sanitizado com o ID do projeto para garantir uma pasta legível e única."""
-    return f"{_slugify(titulo)}-{projeto_id}"
+def build_project_folder_name(
+    titulo: str,
+    projeto_id: str,
+    created_on: date | None = None,
+    existing_folders: set[str] | None = None,
+) -> str:
+    """Combina título sanitizado e data (AAAA-MM-DD); inclui o ID apenas em caso de colisão."""
+    folder_date = (created_on or date.today()).isoformat()
+    base_name = f"{_slugify(titulo)}-{folder_date}"
+    taken = {name.lower() for name in (existing_folders or set()) if name}
+    root = get_storage_root()
+
+    if base_name.lower() not in taken and not (root / base_name).exists():
+        return base_name
+
+    # Só acrescenta o ID se já existir outra pasta com o mesmo nome e data (no banco ou no disco).
+    candidate = f"{base_name}-{projeto_id}"
+    suffix = 2
+    while candidate.lower() in taken or (root / candidate).exists():
+        candidate = f"{base_name}-{projeto_id}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def build_acompanhamento_folder_name(item_date: date | None) -> str:
+    """Usa a data do registro (AAAA-MM-DD) como nome da pasta de anexos para ordenação cronológica."""
+    return item_date.isoformat() if item_date is not None else "sem-data"
 
 
 def ensure_project_folders(folder_name: str) -> Path:
@@ -128,6 +154,57 @@ def delete_stored_file(relative_path: str | None) -> None:
             target.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def remove_acompanhamento_folder_if_empty(folder_name: str, subfolder_name: str) -> None:
+    """Remove a subpasta de data dentro de acompanhamentos se não restarem arquivos de outros registros."""
+    if not folder_name or not subfolder_name:
+        return
+    try:
+        root_resolved = get_storage_root().resolve()
+        acomp_root = (root_resolved / folder_name / "acompanhamentos").resolve()
+        target = (acomp_root / subfolder_name).resolve()
+        if (
+            target != acomp_root
+            and target.is_relative_to(acomp_root)
+            and target.is_dir()
+            and not any(target.iterdir())
+        ):
+            target.rmdir()
+    except OSError:
+        pass
+
+
+def move_stored_file(relative_path: str, folder_name: str, new_subfolder: str) -> str:
+    """Move um anexo para outra subpasta (ex.: ao alterar a data do registro) e retorna o novo caminho."""
+    root_resolved = get_storage_root().resolve()
+    source = (root_resolved / relative_path).resolve()
+    if not source.is_relative_to(root_resolved) or not source.is_file():
+        return relative_path
+
+    project_dir = ensure_project_folders(folder_name)
+    target_dir = (project_dir / new_subfolder).resolve()
+    if not target_dir.is_relative_to(root_resolved):
+        return relative_path
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    candidate = target_dir / source.name
+    if candidate == source:
+        return relative_path
+    if candidate.exists():
+        candidate = target_dir / f"{source.stem}_{uuid4().hex[:6]}{source.suffix}"
+
+    old_parent = source.parent
+    shutil.move(str(source), str(candidate))
+
+    # Remove a pasta antiga apenas se ficou vazia e pertence ao diretório de acompanhamentos.
+    try:
+        if old_parent != target_dir and old_parent.is_dir() and not any(old_parent.iterdir()):
+            old_parent.rmdir()
+    except OSError:
+        pass
+
+    return candidate.relative_to(root_resolved).as_posix()
 
 
 def format_network_path(relative_path: str | None) -> str | None:

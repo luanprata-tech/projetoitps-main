@@ -14,13 +14,20 @@ import {
   Upload,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { useProjects, fmtDate } from "@/lib/projects-store";
+import { useProjects, fmtDate, type Acompanhamento } from "@/lib/projects-store";
 import { useAuth } from "@/lib/auth-store";
 import { StatusManager, StatusPicker } from "@/components/status-controls";
 import { statusTones } from "@/lib/status-options";
 
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { MoneyCell } from "@/components/money-cell";
 import { goalProgress } from "@/lib/goal-progress";
@@ -110,6 +117,8 @@ function Detalhes() {
   } = useProjects();
 
   const [openSections, setOpenSections] = useState<string[]>([]);
+  const [deletingAcomp, setDeletingAcomp] = useState<Acompanhamento | null>(null);
+  const [deletingAcompBusy, setDeletingAcompBusy] = useState(false);
   const openSection = (title: string) =>
     setOpenSections((prev) => (prev.includes(title) ? prev : [...prev, title]));
 
@@ -548,8 +557,11 @@ function Detalhes() {
                   {canEdit && (
                     <td className="px-2">
                       <button
-                        onClick={() => void removeAcompanhamento(p.id, a.id)}
-                        className="text-muted-foreground hover:text-destructive"
+                        type="button"
+                        title="Excluir registro de acompanhamento"
+                        aria-label={`Excluir acompanhamento de ${fmtDate(a.data)}`}
+                        onClick={() => setDeletingAcomp(a)}
+                        className="cursor-pointer text-muted-foreground hover:text-destructive"
                       >
                         <Trash2 className="size-4" />
                       </button>
@@ -697,6 +709,55 @@ function Detalhes() {
           </table>
         </Section>
       </Accordion>
+
+      {deletingAcomp && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !deletingAcompBusy) setDeletingAcomp(null);
+          }}
+        >
+          <DialogContent className="w-[calc(100%-2rem)] max-w-md rounded-lg bg-card">
+            <DialogHeader>
+              <DialogTitle className="font-display text-xl tracking-normal">
+                Excluir acompanhamento
+              </DialogTitle>
+              <DialogDescription>
+                Tem certeza que deseja excluir o registro de{" "}
+                <strong>{fmtDate(deletingAcomp.data)}</strong>?{" "}
+                {deletingAcomp.anexos > 0
+                  ? `Os ${deletingAcomp.anexos} anexo(s) vinculados e a pasta correspondente no servidor também serão excluídos permanentemente.`
+                  : "A pasta correspondente no servidor (se houver) também será removida."}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setDeletingAcomp(null)}
+                disabled={deletingAcompBusy}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={deletingAcompBusy}
+                onClick={async () => {
+                  setDeletingAcompBusy(true);
+                  try {
+                    await removeAcompanhamento(p.id, deletingAcomp.id);
+                    setDeletingAcomp(null);
+                  } finally {
+                    setDeletingAcompBusy(false);
+                  }
+                }}
+              >
+                <Trash2 />
+                {deletingAcompBusy ? "Excluindo..." : "Confirmar exclusão"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

@@ -210,6 +210,10 @@ export const apiClient = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+  deleteProject: (id: string) =>
+    request<void>(`/api/projetos/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
   uploadRelatorio: (projetoId: string, file: File) => {
     const form = new FormData();
     form.append("file", file);

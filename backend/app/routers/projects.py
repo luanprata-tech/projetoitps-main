@@ -65,6 +65,20 @@ def update_project_overview(
     return project_service.update_project_overview(db, projeto_id, payload)
 
 
+@router.delete(
+    "/{projeto_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_editor)],
+)
+def delete_project(
+    projeto_id: str,
+    db: Session = Depends(get_db),
+):
+    """Remove o projeto do banco de dados mantendo a pasta e os anexos na pasta compartilhada."""
+    project_service.delete_project(db, projeto_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post(
     "/{projeto_id}/relatorio",
     response_model=ProjetoOut,
