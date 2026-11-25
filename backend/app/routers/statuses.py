@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user, require_editor
+from app.core.security import require_editor
 from app.schemas.status import (
     StatusCreateSchema,
     StatusDeleteResponseSchema,
@@ -14,10 +14,10 @@ from app.schemas.status import (
 )
 from app.services import status_service
 
+# Leitura do catálogo fica pública para o modo de visualização; alterações exigem editor/admin.
 router = APIRouter(
     prefix="/api/statuses",
     tags=["Status"],
-    dependencies=[Depends(get_current_user)],
 )
 
 

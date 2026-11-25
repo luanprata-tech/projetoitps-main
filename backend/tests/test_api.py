@@ -69,9 +69,11 @@ def test_health_auth_protection_and_jwt_expiration(client: TestClient) -> None:
     assert health.status_code == 200
     assert health.json() == {"status": "ok", "database": "ok"}
 
-    # Rotas protegidas devem bloquear acesso sem token.
-    assert client.get("/api/projetos").status_code == 401
-    assert client.get("/api/statuses").status_code == 401
+    # Modo de visualização pública permite apenas leitura; escrita e contas continuam exigindo token.
+    assert client.get("/api/projetos").status_code == 200
+    assert client.get("/api/statuses").status_code == 200
+    assert client.post("/api/projetos", json={"titulo": "Sem login"}).status_code == 401
+    assert client.post("/api/statuses", json={"label": "Novo", "tone": "planned"}).status_code == 401
     assert client.get("/api/users").status_code == 401
     assert client.get("/api/auth/me").status_code == 401
 
@@ -100,7 +102,7 @@ def test_health_auth_protection_and_jwt_expiration(client: TestClient) -> None:
     assert projetos.status_code == 200
     assert projetos.json() == []
 
-    # Token expirado deve retornar 401 imediatamente.
+    # Token expirado deve retornar 401 imediatamente em rotas autenticadas.
     expired_token = jwt.encode(
         {
             "sub": "admin-default",
@@ -111,10 +113,18 @@ def test_health_auth_protection_and_jwt_expiration(client: TestClient) -> None:
         algorithm=settings.jwt_algorithm,
     )
     expired_resp = client.get(
-        "/api/projetos",
+        "/api/auth/me",
         headers={"Authorization": f"Bearer {expired_token}"},
     )
     assert expired_resp.status_code == 401
+    assert (
+        client.post(
+            "/api/projetos",
+            headers={"Authorization": f"Bearer {expired_token}"},
+            json={"titulo": "Expirado"},
+        ).status_code
+        == 401
+    )
 
 
 def test_admin_user_management_and_role_permissions(client: TestClient) -> None:
@@ -543,6 +553,16 @@ def test_three_roles_rbac_admin_editor_and_readonly_user(client: TestClient) -> 
     )
     assert up_rel.status_code == 200
 
+    # Visitante sem login (modo visualização) pode visualizar e baixar anexos, mas é bloqueado em escrita (401).
+    assert client.get("/api/projetos").status_code == 200
+    assert client.get(f"/api/projetos/{pid}").status_code == 200
+    assert client.get("/api/statuses").status_code == 200
+    anon_dl = client.get(f"/api/projetos/{pid}/relatorio/download")
+    assert anon_dl.status_code == 200
+    assert anon_dl.content == b"PDF-EDITOR"
+    assert client.post("/api/projetos", json={"titulo": "Anon"}).status_code == 401
+    assert client.delete(f"/api/projetos/{pid}").status_code == 401
+
     # Usuário comum pode visualizar e baixar anexos, mas é bloqueado em qualquer escrita (403).
     assert client.get("/api/projetos", headers=user_headers).status_code == 200
     assert client.get(f"/api/projetos/{pid}", headers=user_headers).status_code == 200
@@ -614,3 +634,96 @@ def test_delete_project_keeps_folder_and_files_on_disk(client: TestClient, tmp_p
     project_dir = tmp_path / "storage" / pasta
     assert project_dir.is_dir()
     assert (project_dir / "relatorio-final" / "relatorio_preservado.pdf").is_file()
+
+
+def test_conclude_project_moves_folder_and_remains_editable(client: TestClient, tmp_path) -> None:
+    headers = _login_headers(
+        client,
+        settings.default_admin_username,
+        settings.default_admin_password,
+    )
+    storage_root = tmp_path / "storage"
+    # A pasta 'projetos finalizados' deve existir automaticamente no diretório raiz de storage.
+    assert (storage_root / "projetos finalizados").is_dir()
+
+    created = client.post(
+        "/api/projetos",
+        headers=headers,
+        json={"titulo": "Monitoramento Costeiro", "supervisor": "Dra. Ana"},
+    ).json()
+    pid = created["id"]
+    old_pasta = created["pasta"]
+    assert created["concluido"] is False
+
+    # Envia relatório final e anexo de acompanhamento antes de concluir o projeto.
+    assert (
+        client.post(
+            f"/api/projetos/{pid}/relatorio",
+            headers=headers,
+            files={"file": ("final.pdf", b"%PDF-1.4 relatorio", "application/pdf")},
+        ).status_code
+        == 200
+    )
+    acomp = client.post(
+        f"/api/projetos/{pid}/acompanhamentos",
+        headers=headers,
+        json={"data": "2026-09-10", "descricao": "Coleta de campo"},
+    ).json()
+    up_anexo = client.post(
+        f"/api/projetos/{pid}/acompanhamentos/{acomp['id']}/anexos",
+        headers=headers,
+        files=[("files", ("planilha.txt", b"dados-coleta", "text/plain"))],
+    )
+    assert up_anexo.status_code == 200
+    anexo_id = up_anexo.json()["anexosLista"][0]["id"]
+
+    # Sem autenticação, concluir projeto deve ser bloqueado (401).
+    assert client.post(f"/api/projetos/{pid}/concluir").status_code == 401
+
+    # Conclui o projeto e valida movimentação física para 'projetos finalizados/<pasta>'.
+    concluded_resp = client.post(f"/api/projetos/{pid}/concluir", headers=headers)
+    assert concluded_resp.status_code == 200
+    concluded = concluded_resp.json()
+    expected_pasta = f"projetos finalizados/{old_pasta}"
+    assert concluded["concluido"] is True
+    assert concluded["pasta"] == expected_pasta
+    assert concluded["relatorio"] == f"{expected_pasta}/relatorio-final/final.pdf"
+    assert concluded["acompanhamentos"][0]["anexosLista"][0]["caminho"] == (
+        f"{expected_pasta}/acompanhamentos/2026-09-10/planilha.txt"
+    )
+    assert not (storage_root / old_pasta).exists()
+    assert (storage_root / "projetos finalizados" / old_pasta / "relatorio-final" / "final.pdf").is_file()
+    assert (
+        storage_root / "projetos finalizados" / old_pasta / "acompanhamentos" / "2026-09-10" / "planilha.txt"
+    ).is_file()
+
+    # Downloads continuam funcionando após mover a pasta (inclusive sem login).
+    assert client.get(f"/api/projetos/{pid}/relatorio/download").content == b"%PDF-1.4 relatorio"
+    assert (
+        client.get(
+            f"/api/projetos/{pid}/acompanhamentos/{acomp['id']}/anexos/{anexo_id}/download"
+        ).content
+        == b"dados-coleta"
+    )
+
+    # Projeto concluído continua totalmente editável sem perder a marcação de concluído.
+    edited = client.put(
+        f"/api/projetos/{pid}",
+        headers=headers,
+        json={"titulo": "Monitoramento Costeiro (Revisado)", "supervisor": "Dra. Ana"},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["concluido"] is True
+    assert edited.json()["titulo"] == "Monitoramento Costeiro (Revisado)"
+
+    # Excluir acompanhamento de projeto concluído também remove a subpasta de data em projetos finalizados.
+    assert (
+        client.delete(
+            f"/api/projetos/{pid}/acompanhamentos/{acomp['id']}",
+            headers=headers,
+        ).status_code
+        == 204
+    )
+    assert not (
+        storage_root / "projetos finalizados" / old_pasta / "acompanhamentos" / "2026-09-10"
+    ).exists()

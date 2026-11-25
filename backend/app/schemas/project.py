@@ -290,6 +290,7 @@ class ProjetoOut(BaseModel):
     fim: str
     supervisor: str
     pasta: str = ""
+    concluido: bool = False
     bolsistas: list[BolsistaSchema]
     relatorio: str | None
     impacto: str

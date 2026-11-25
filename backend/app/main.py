@@ -10,13 +10,19 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.routers import auth, health, projects, statuses, users
 from app.services.seed_service import seed_initial_data
+from app.services.storage_service import ensure_finished_projects_root
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Executa o seed inicial apenas quando habilitado e o banco estiver vazio."""
+    """Executa o seed inicial e garante a pasta de projetos finalizados no storage."""
+    try:
+        ensure_finished_projects_root()
+    except OSError as exc:
+        logger.warning("Não foi possível preparar a pasta de projetos finalizados: %s", exc)
+
     if settings.auto_seed:
         db = SessionLocal()
         try:

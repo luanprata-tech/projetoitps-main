@@ -32,6 +32,7 @@ from app.services.storage_service import (
     build_project_folder_name,
     delete_stored_file,
     ensure_project_folders,
+    move_project_folder_to_finished,
     move_stored_file,
     remove_acompanhamento_folder_if_empty,
     resolve_stored_file,
@@ -191,6 +192,51 @@ def delete_project(db: Session, projeto_id: str) -> None:
     # Regra de negócio: a exclusão remove apenas os registros do banco, mantendo a pasta e arquivos na rede.
     db.delete(projeto)
     db.commit()
+
+
+def _rebase_stored_path(
+    stored_path: str | None,
+    old_folder: str,
+    new_folder: str,
+) -> str | None:
+    """Atualiza o prefixo de um caminho relativo quando a pasta do projeto é movida no servidor."""
+    if not stored_path:
+        return stored_path
+    normalized = stored_path.replace("\\", "/").lstrip("/")
+    old_prefix = f"{old_folder.strip('/')}/" if old_folder else ""
+    if old_prefix and normalized.startswith(old_prefix):
+        return f"{new_folder}/{normalized[len(old_prefix):]}"
+    return normalized
+
+
+def conclude_project(db: Session, projeto_id: str) -> Projeto:
+    """Marca o projeto como concluído e move sua pasta e anexos para 'projetos finalizados'."""
+    projeto = get_project_or_404(db, projeto_id)
+    old_folder = (projeto.pasta or "").replace("\\", "/").strip("/")
+    existing = {
+        folder
+        for folder in _list_existing_project_folders(db)
+        if folder != projeto.pasta
+    }
+    new_folder = move_project_folder_to_finished(
+        old_folder,
+        projeto.titulo,
+        projeto.id,
+        existing_folders=existing,
+    )
+
+    projeto.concluido = True
+    projeto.pasta = new_folder
+    if old_folder and old_folder != new_folder:
+        projeto.relatorio = _rebase_stored_path(projeto.relatorio, old_folder, new_folder)
+        for acomp in projeto.acompanhamentos:
+            for anexo in acomp.anexos_lista:
+                rebased = _rebase_stored_path(anexo.caminho, old_folder, new_folder)
+                if rebased:
+                    anexo.caminho = rebased
+
+    db.commit()
+    return get_project_or_404(db, projeto.id)
 
 
 def create_meta(db: Session, projeto_id: str, payload: MetaCreate) -> Meta:
@@ -363,10 +409,12 @@ def delete_acompanhamento(db: Session, projeto_id: str, item_id: str) -> None:
 
     subfolders_to_clean = {build_acompanhamento_folder_name(item.data)}
     for anexo in item.anexos_lista:
-        # Coleta também a subpasta real onde o arquivo estava (cobre pastas legadas por ID).
+        # Localiza dinamicamente a subpasta de data tanto em projetos ativos quanto em projetos finalizados.
         parts = PurePosixPath(anexo.caminho.replace("\\", "/")).parts
-        if len(parts) >= 3 and parts[1] == "acompanhamentos":
-            subfolders_to_clean.add(parts[2])
+        if "acompanhamentos" in parts:
+            idx = parts.index("acompanhamentos")
+            if idx + 1 < len(parts):
+                subfolders_to_clean.add(parts[idx + 1])
         delete_stored_file(anexo.caminho)
 
     db.delete(item)

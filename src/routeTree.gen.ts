@@ -10,14 +10,23 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ConcluidosRouteImport } from './routes/concluidos'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PlanoRouteImport } from './routes/plano'
 import { Route as UsuariosRouteImport } from './routes/usuarios'
+import { Route as ExibicaoIndexRouteImport } from './routes/exibicao/index'
+import { Route as ExibicaoPlanoRouteImport } from './routes/exibicao/plano'
 import { Route as ProjetoIdRouteImport } from './routes/projeto/$id'
+import { Route as ExibicaoProjetoIdRouteImport } from './routes/exibicao/projeto/$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConcluidosRoute = ConcluidosRouteImport.update({
+  id: '/concluidos',
+  path: '/concluidos',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -35,48 +44,107 @@ const UsuariosRoute = UsuariosRouteImport.update({
   path: '/usuarios',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExibicaoIndexRoute = ExibicaoIndexRouteImport.update({
+  id: '/exibicao/',
+  path: '/exibicao/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExibicaoPlanoRoute = ExibicaoPlanoRouteImport.update({
+  id: '/exibicao/plano',
+  path: '/exibicao/plano',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjetoIdRoute = ProjetoIdRouteImport.update({
   id: '/projeto/$id',
   path: '/projeto/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExibicaoProjetoIdRoute = ExibicaoProjetoIdRouteImport.update({
+  id: '/exibicao/projeto/$id',
+  path: '/exibicao/projeto/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/concluidos': typeof ConcluidosRoute
   '/login': typeof LoginRoute
   '/plano': typeof PlanoRoute
   '/usuarios': typeof UsuariosRoute
+  '/exibicao/plano': typeof ExibicaoPlanoRoute
   '/projeto/$id': typeof ProjetoIdRoute
+  '/exibicao/': typeof ExibicaoIndexRoute
+  '/exibicao/projeto/$id': typeof ExibicaoProjetoIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/concluidos': typeof ConcluidosRoute
   '/login': typeof LoginRoute
   '/plano': typeof PlanoRoute
   '/usuarios': typeof UsuariosRoute
+  '/exibicao/plano': typeof ExibicaoPlanoRoute
   '/projeto/$id': typeof ProjetoIdRoute
+  '/exibicao': typeof ExibicaoIndexRoute
+  '/exibicao/projeto/$id': typeof ExibicaoProjetoIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/concluidos': typeof ConcluidosRoute
   '/login': typeof LoginRoute
   '/plano': typeof PlanoRoute
   '/usuarios': typeof UsuariosRoute
+  '/exibicao/plano': typeof ExibicaoPlanoRoute
   '/projeto/$id': typeof ProjetoIdRoute
+  '/exibicao/': typeof ExibicaoIndexRoute
+  '/exibicao/projeto/$id': typeof ExibicaoProjetoIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/plano' | '/usuarios' | '/projeto/$id'
+  fullPaths:
+    | '/'
+    | '/concluidos'
+    | '/login'
+    | '/plano'
+    | '/usuarios'
+    | '/exibicao/plano'
+    | '/projeto/$id'
+    | '/exibicao/'
+    | '/exibicao/projeto/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/plano' | '/usuarios' | '/projeto/$id'
-  id: '__root__' | '/' | '/login' | '/plano' | '/usuarios' | '/projeto/$id'
+  to:
+    | '/'
+    | '/concluidos'
+    | '/login'
+    | '/plano'
+    | '/usuarios'
+    | '/exibicao/plano'
+    | '/projeto/$id'
+    | '/exibicao'
+    | '/exibicao/projeto/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/concluidos'
+    | '/login'
+    | '/plano'
+    | '/usuarios'
+    | '/exibicao/plano'
+    | '/projeto/$id'
+    | '/exibicao/'
+    | '/exibicao/projeto/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ConcluidosRoute: typeof ConcluidosRoute
   LoginRoute: typeof LoginRoute
   PlanoRoute: typeof PlanoRoute
   UsuariosRoute: typeof UsuariosRoute
+  ExibicaoPlanoRoute: typeof ExibicaoPlanoRoute
   ProjetoIdRoute: typeof ProjetoIdRoute
+  ExibicaoIndexRoute: typeof ExibicaoIndexRoute
+  ExibicaoProjetoIdRoute: typeof ExibicaoProjetoIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -86,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/concluidos': {
+      id: '/concluidos'
+      path: '/concluidos'
+      fullPath: '/concluidos'
+      preLoaderRoute: typeof ConcluidosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -109,6 +184,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UsuariosRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/exibicao/': {
+      id: '/exibicao/'
+      path: '/exibicao'
+      fullPath: '/exibicao/'
+      preLoaderRoute: typeof ExibicaoIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/exibicao/plano': {
+      id: '/exibicao/plano'
+      path: '/exibicao/plano'
+      fullPath: '/exibicao/plano'
+      preLoaderRoute: typeof ExibicaoPlanoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/projeto/$id': {
       id: '/projeto/$id'
       path: '/projeto/$id'
@@ -116,15 +205,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjetoIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/exibicao/projeto/$id': {
+      id: '/exibicao/projeto/$id'
+      path: '/exibicao/projeto/$id'
+      fullPath: '/exibicao/projeto/$id'
+      preLoaderRoute: typeof ExibicaoProjetoIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ConcluidosRoute: ConcluidosRoute,
   LoginRoute: LoginRoute,
   PlanoRoute: PlanoRoute,
   UsuariosRoute: UsuariosRoute,
+  ExibicaoPlanoRoute: ExibicaoPlanoRoute,
   ProjetoIdRoute: ProjetoIdRoute,
+  ExibicaoIndexRoute: ExibicaoIndexRoute,
+  ExibicaoProjetoIdRoute: ExibicaoProjetoIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

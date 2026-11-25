@@ -94,8 +94,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // Mantém mensagem padrão caso a resposta de erro não seja JSON.
     }
 
-    // Dispara logout automático em 401 para qualquer rota exceto a própria tentativa de login.
-    if (response.status === 401 && path !== "/api/auth/login") {
+    // Dispara logout automático em 401 apenas quando havia uma sessão ativa.
+    if (response.status === 401 && path !== "/api/auth/login" && activeAuthToken) {
       unauthorizedCallback?.();
     }
 
@@ -123,7 +123,7 @@ async function downloadFile(path: string, fallbackFilename: string): Promise<voi
   }
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (response.status === 401 && activeAuthToken) {
       unauthorizedCallback?.();
     }
     let message = `Não foi possível baixar o arquivo (${response.status}).`;
@@ -213,6 +213,10 @@ export const apiClient = {
   deleteProject: (id: string) =>
     request<void>(`/api/projetos/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    }),
+  concludeProject: (id: string) =>
+    request<Projeto>(`/api/projetos/${encodeURIComponent(id)}/concluir`, {
+      method: "POST",
     }),
   uploadRelatorio: (projetoId: string, file: File) => {
     const form = new FormData();

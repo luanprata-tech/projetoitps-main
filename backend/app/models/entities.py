@@ -59,6 +59,13 @@ class Projeto(Base):
     pasta: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     # Caminho relativo do relatório final dentro do diretório base de armazenamento.
     relatorio: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Indica se o projeto foi finalizado e movido para a aba/pasta de projetos concluídos.
+    concluido: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
 
     # Ordenação explícita preserva a sequência de criação/exibição nas tabelas e formulários.
     bolsistas: Mapped[list["Bolsista"]] = relationship(

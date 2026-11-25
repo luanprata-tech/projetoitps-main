@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user, require_editor
+from app.core.security import require_editor
 from app.schemas.project import (
     AcompanhamentoCreate,
     AcompanhamentoOut,
@@ -21,10 +21,10 @@ from app.schemas.project import (
 )
 from app.services import project_service
 
+# Leitura e download ficam disponíveis no modo de visualização pública; escrita exige editor/admin.
 router = APIRouter(
     prefix="/api/projetos",
     tags=["Projetos"],
-    dependencies=[Depends(get_current_user)],
 )
 
 
@@ -77,6 +77,19 @@ def delete_project(
     """Remove o projeto do banco de dados mantendo a pasta e os anexos na pasta compartilhada."""
     project_service.delete_project(db, projeto_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{projeto_id}/concluir",
+    response_model=ProjetoOut,
+    dependencies=[Depends(require_editor)],
+)
+def conclude_project(
+    projeto_id: str,
+    db: Session = Depends(get_db),
+):
+    """Marca o projeto como concluído e move sua pasta física para 'projetos finalizados'."""
+    return project_service.conclude_project(db, projeto_id)
 
 
 @router.post(

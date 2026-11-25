@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { FlaskConical, LogIn } from "lucide-react";
+import { Eye, FlaskConical, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-store";
 
@@ -102,6 +102,16 @@ function LoginPage() {
             {submitting ? "Entrando..." : "Entrar"}
           </Button>
         </form>
+
+        <div className="border-t pt-4 text-center">
+          <Link
+            to="/exibicao"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+          >
+            <Eye className="size-4" />
+            Modo de exibição (somente leitura)
+          </Link>
+        </div>
       </div>
     </div>
   );

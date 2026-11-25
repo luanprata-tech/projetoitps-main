@@ -16,7 +16,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider, useAuth } from "../lib/auth-store";
 import { ProjectsProvider } from "../lib/projects-store";
-import { FlaskConical, LayoutGrid, LogOut, Users } from "lucide-react";
+import { CheckCircle2, Eye, FlaskConical, LayoutGrid, LogIn, LogOut, Users } from "lucide-react";
 
 function NotFoundComponent() {
   return (
@@ -133,11 +133,12 @@ function AppShell() {
 
   const isLoginRoute = pathname === "/login";
   const isAdminOnlyRoute = pathname === "/usuarios";
+  const isPublicViewRoute = pathname === "/exibicao" || pathname.startsWith("/exibicao/");
 
-  // Impede acesso forçado por URL quando o usuário não está autenticado ou não é administrador.
+  // Rotas do painel exigem login; apenas /login e o prefixo /exibicao ficam acessíveis sem autenticação.
   useEffect(() => {
     if (!ready) return;
-    if (!isAuthenticated && !isLoginRoute) {
+    if (!isAuthenticated && !isLoginRoute && !isPublicViewRoute) {
       void navigate({ to: "/login", replace: true });
       return;
     }
@@ -148,7 +149,7 @@ function AppShell() {
     if (isAuthenticated && isAdminOnlyRoute && !isAdmin) {
       void navigate({ to: "/", replace: true });
     }
-  }, [ready, isAuthenticated, isAdmin, isLoginRoute, isAdminOnlyRoute, navigate]);
+  }, [ready, isAuthenticated, isAdmin, isLoginRoute, isAdminOnlyRoute, isPublicViewRoute, navigate]);
 
   if (!ready) {
     return (
@@ -158,7 +159,7 @@ function AppShell() {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated && !isPublicViewRoute) {
     if (!isLoginRoute) return null;
     return (
       <div className="min-h-screen font-sans">
@@ -176,61 +177,120 @@ function AppShell() {
       <header className="bg-sidebar text-sidebar-foreground">
         <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-8">
-            <Link to="/" className="flex items-center gap-2">
+            <Link to={isPublicViewRoute ? "/exibicao" : "/"} className="flex items-center gap-2">
               <span className="grid size-9 place-items-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
                 <FlaskConical className="size-5" />
               </span>
               <span className="font-display text-xl">ProjetosITPS</span>
             </Link>
             <nav className="flex gap-1 text-sm">
-              <Link
-                to="/"
-                activeOptions={{ exact: true }}
-                className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-sidebar-accent"
-                activeProps={{ className: "bg-sidebar-accent" }}
-              >
-                <LayoutGrid className="size-4" />
-                Visão Geral
-              </Link>
-              <Link
-                to="/plano"
-                className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-sidebar-accent"
-                activeProps={{ className: "bg-sidebar-accent" }}
-              >
-                <FlaskConical className="size-4" />
-                Plano de Trabalho
-              </Link>
-              {isAdmin && (
-                <Link
-                  to="/usuarios"
-                  className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-sidebar-accent"
-                  activeProps={{ className: "bg-sidebar-accent" }}
-                >
-                  <Users className="size-4" />
-                  Usuários
-                </Link>
+              {isPublicViewRoute ? (
+                <>
+                  <Link
+                    to="/exibicao"
+                    activeOptions={{ exact: true }}
+                    className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-sidebar-accent"
+                    activeProps={{ className: "bg-sidebar-accent" }}
+                  >
+                    <LayoutGrid className="size-4" />
+                    Visão Geral
+                  </Link>
+                  <Link
+                    to="/exibicao/plano"
+                    className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-sidebar-accent"
+                    activeProps={{ className: "bg-sidebar-accent" }}
+                  >
+                    <FlaskConical className="size-4" />
+                    Plano de Trabalho
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    to="/"
+                    activeOptions={{ exact: true }}
+                    className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-sidebar-accent"
+                    activeProps={{ className: "bg-sidebar-accent" }}
+                  >
+                    <LayoutGrid className="size-4" />
+                    Visão Geral
+                  </Link>
+                  <Link
+                    to="/concluidos"
+                    className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-sidebar-accent"
+                    activeProps={{ className: "bg-sidebar-accent" }}
+                  >
+                    <CheckCircle2 className="size-4" />
+                    Projetos Concluídos
+                  </Link>
+                  <Link
+                    to="/plano"
+                    className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-sidebar-accent"
+                    activeProps={{ className: "bg-sidebar-accent" }}
+                  >
+                    <FlaskConical className="size-4" />
+                    Plano de Trabalho
+                  </Link>
+                  {isAdmin && (
+                    <Link
+                      to="/usuarios"
+                      className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-sidebar-accent"
+                      activeProps={{ className: "bg-sidebar-accent" }}
+                    >
+                      <Users className="size-4" />
+                      Usuários
+                    </Link>
+                  )}
+                </>
               )}
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <div className="hidden text-right sm:block">
-              <p className="font-medium leading-tight">{user?.nome}</p>
-              <p className="text-xs text-sidebar-foreground/70">
-                {user?.role === "admin"
-                  ? "Administrador"
-                  : user?.role === "editor"
-                    ? "Editor"
-                    : "Usuário"}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => logout()}
-              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent"
-            >
-              <LogOut className="size-3.5" />
-              Sair
-            </button>
+            {isPublicViewRoute ? (
+              <>
+                <span className="hidden items-center gap-1.5 rounded-md bg-sidebar-accent px-2.5 py-1 text-xs text-sidebar-foreground/90 sm:inline-flex">
+                  <Eye className="size-3.5" />
+                  Modo exibição
+                </span>
+                {isAuthenticated ? (
+                  <Link
+                    to="/"
+                    className="flex items-center gap-1.5 rounded-md border border-sidebar-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent"
+                  >
+                    Ir ao painel
+                  </Link>
+                ) : (
+                  <Link
+                    to="/login"
+                    className="flex items-center gap-1.5 rounded-md border border-sidebar-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent"
+                  >
+                    <LogIn className="size-3.5" />
+                    Entrar
+                  </Link>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="hidden text-right sm:block">
+                  <p className="font-medium leading-tight">{user?.nome}</p>
+                  <p className="text-xs text-sidebar-foreground/70">
+                    {user?.role === "admin"
+                      ? "Administrador"
+                      : user?.role === "editor"
+                        ? "Editor"
+                        : "Usuário"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => logout()}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent"
+                >
+                  <LogOut className="size-3.5" />
+                  Sair
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>

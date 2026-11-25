@@ -1,7 +1,7 @@
 """Serviço de armazenamento em sistema de arquivos para pastas de projetos e anexos."""
 
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import unicodedata
@@ -13,6 +13,8 @@ from app.core.config import settings
 
 # Limite de 50 MB por arquivo para evitar consumo excessivo de memória/disco por upload.
 MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
+# Pasta dedicada dentro da raiz compartilhada para arquivar projetos marcados como concluídos.
+FINISHED_PROJECTS_DIR_NAME = "projetos finalizados"
 
 
 def get_storage_root() -> Path:
@@ -20,6 +22,13 @@ def get_storage_root() -> Path:
     root = Path(settings.storage_base_dir)
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def ensure_finished_projects_root() -> Path:
+    """Garante a existência da pasta 'projetos finalizados' dentro da pasta compartilhada."""
+    finished_dir = get_storage_root() / FINISHED_PROJECTS_DIR_NAME
+    finished_dir.mkdir(parents=True, exist_ok=True)
+    return finished_dir
 
 
 def _slugify(value: str, max_length: int = 60) -> str:
@@ -70,6 +79,62 @@ def ensure_project_folders(folder_name: str) -> Path:
     (project_dir / "relatorio-final").mkdir(parents=True, exist_ok=True)
     (project_dir / "acompanhamentos").mkdir(parents=True, exist_ok=True)
     return project_dir
+
+
+def move_project_folder_to_finished(
+    current_folder: str | None,
+    titulo: str,
+    projeto_id: str,
+    existing_folders: set[str] | None = None,
+) -> str:
+    """Move a pasta completa do projeto para 'projetos finalizados/<pasta>' preservando anexos."""
+    root_resolved = get_storage_root().resolve()
+    finished_root = ensure_finished_projects_root().resolve()
+    normalized_current = (current_folder or "").replace("\\", "/").strip("/")
+
+    # Se o projeto já está dentro de 'projetos finalizados', garante as subpastas e evita mover novamente.
+    prefix = f"{FINISHED_PROJECTS_DIR_NAME}/"
+    if normalized_current.lower().startswith(prefix.lower()):
+        ensure_project_folders(normalized_current)
+        return normalized_current
+
+    leaf_name = (
+        PurePosixPath(normalized_current).name
+        if normalized_current
+        else build_project_folder_name(titulo, projeto_id, existing_folders=existing_folders)
+    )
+    taken = {name.lower() for name in (existing_folders or set()) if name}
+
+    candidate_leaf = leaf_name
+    candidate_rel = f"{FINISHED_PROJECTS_DIR_NAME}/{candidate_leaf}"
+    if candidate_rel.lower() in taken or (finished_root / candidate_leaf).exists():
+        candidate_leaf = f"{leaf_name}-{projeto_id}"
+        candidate_rel = f"{FINISHED_PROJECTS_DIR_NAME}/{candidate_leaf}"
+        suffix = 2
+        while candidate_rel.lower() in taken or (finished_root / candidate_leaf).exists():
+            candidate_leaf = f"{leaf_name}-{projeto_id}-{suffix}"
+            candidate_rel = f"{FINISHED_PROJECTS_DIR_NAME}/{candidate_leaf}"
+            suffix += 1
+
+    dest_dir = (finished_root / candidate_leaf).resolve()
+    if not dest_dir.is_relative_to(finished_root):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Caminho de destino inválido para projeto concluído.",
+        )
+
+    source_dir = (root_resolved / normalized_current).resolve() if normalized_current else None
+    if (
+        source_dir is not None
+        and source_dir != root_resolved
+        and source_dir != finished_root
+        and source_dir.is_relative_to(root_resolved)
+        and source_dir.is_dir()
+    ):
+        shutil.move(str(source_dir), str(dest_dir))
+
+    ensure_project_folders(candidate_rel)
+    return candidate_rel
 
 
 def sanitize_filename(filename: str | None) -> str:

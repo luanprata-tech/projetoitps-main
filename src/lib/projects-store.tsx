@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { apiClient } from "./api-client";
 import { useAuth } from "./auth-store";
 import type { Semestres } from "./goal-progress";
@@ -57,6 +58,7 @@ export interface Projeto {
   fim: string;
   supervisor: string;
   pasta?: string;
+  concluido: boolean;
   bolsistas: { modalidade: string; nome: string }[];
   relatorio: string | null;
   relatorioNome?: string | null;
@@ -69,7 +71,14 @@ export interface Projeto {
 
 export type ProjetoDados = Omit<
   Projeto,
-  "id" | "pasta" | "relatorioNome" | "relatorioCaminhoRede" | "metas" | "acompanhamentos" | "custos"
+  | "id"
+  | "pasta"
+  | "concluido"
+  | "relatorioNome"
+  | "relatorioCaminhoRede"
+  | "metas"
+  | "acompanhamentos"
+  | "custos"
 >;
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -90,6 +99,7 @@ interface Ctx {
   add: (p: ProjetoDados, relatorioFile?: File | null) => Promise<void>;
   updateOverview: (id: string, data: ProjetoDados, relatorioFile?: File | null) => Promise<void>;
   removeProject: (id: string) => Promise<void>;
+  concludeProject: (id: string) => Promise<void>;
   uploadRelatorio: (projetoId: string, file: File) => Promise<void>;
   downloadRelatorio: (projetoId: string, filename: string) => Promise<void>;
   deleteRelatorio: (projetoId: string) => Promise<void>;
@@ -135,7 +145,11 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 }
 
 export function ProjectsProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { ready, isAuthenticated } = useAuth();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isPublicViewRoute = pathname === "/exibicao" || pathname.startsWith("/exibicao/");
+  const shouldLoadData = isAuthenticated || isPublicViewRoute;
+
   const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [statuses, setStatuses] = useState<StatusOption[]>(initialStatuses);
   const [loading, setLoading] = useState(false);
@@ -147,7 +161,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
   const pendingPatchesRef = useRef<Map<string, Record<string, unknown>>>(new Map());
 
   const reload = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!shouldLoadData) return;
     setLoading(true);
     setError(null);
     try {
@@ -162,17 +176,20 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated]);
+  }, [shouldLoadData]);
 
   useEffect(() => {
+    if (!ready) return;
     const timers = timersRef.current;
-    if (!isAuthenticated) {
-      // Limpa dados em memória ao encerrar a sessão para não expor informações entre contas.
-      for (const timer of timers.values()) {
-        clearTimeout(timer);
-      }
-      timers.clear();
-      pendingPatchesRef.current.clear();
+    // Cancela edições pendentes ao trocar de sessão (login/logout) ou sair do modo público.
+    for (const timer of timers.values()) {
+      clearTimeout(timer);
+    }
+    timers.clear();
+    pendingPatchesRef.current.clear();
+
+    if (!shouldLoadData) {
+      // Limpa dados em memória na tela de login para não expor informações entre contas.
       setProjetos([]);
       setStatuses(initialStatuses);
       setError(null);
@@ -181,6 +198,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    setSyncError(null);
     void reload();
     return () => {
       for (const timer of timers.values()) {
@@ -188,7 +206,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
       }
       timers.clear();
     };
-  }, [isAuthenticated, reload]);
+  }, [ready, shouldLoadData, isAuthenticated, reload]);
 
   const clearSyncError = useCallback(() => setSyncError(null), []);
 
@@ -256,6 +274,12 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
   const removeProject: Ctx["removeProject"] = async (id) => {
     await apiClient.deleteProject(id);
     setProjetos((prev) => prev.filter((p) => p.id !== id));
+    setSyncError(null);
+  };
+
+  const concludeProject: Ctx["concludeProject"] = async (id) => {
+    const updated = await apiClient.concludeProject(id);
+    setProjetos((prev) => prev.map((p) => (p.id === id ? updated : p)));
     setSyncError(null);
   };
 
@@ -545,6 +569,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
         add,
         updateOverview,
         removeProject,
+        concludeProject,
         uploadRelatorio,
         downloadRelatorio,
         deleteRelatorio,
