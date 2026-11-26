@@ -433,9 +433,7 @@ export function ProjectsOverviewPage({
                 Excluir projeto
               </DialogTitle>
               <DialogDescription>
-                Tem certeza que deseja excluir o projeto <strong>{deleting.titulo}</strong> do
-                sistema? A pasta e os arquivos salvos na pasta compartilhada do servidor serão
-                mantidos.
+                Tem certeza que deseja excluir o projeto <strong>{deleting.titulo}</strong>?
               </DialogDescription>
             </DialogHeader>
             {deleteError && (

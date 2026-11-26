@@ -322,8 +322,7 @@ function GerenciarUsuarios() {
                 Remover usuário
               </DialogTitle>
               <DialogDescription>
-                Tem certeza que deseja excluir a conta de <strong>{deleting.nome}</strong> (
-                {deleting.username})? Esta ação não pode ser desfeita.
+                Tem certeza que deseja excluir o usuário <strong>{deleting.nome}</strong>?
               </DialogDescription>
             </DialogHeader>
             {deleteError && (

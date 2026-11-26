@@ -741,10 +741,7 @@ export function ProjectDetailsPage({
               </DialogTitle>
               <DialogDescription>
                 Tem certeza que deseja excluir o registro de{" "}
-                <strong>{fmtDate(deletingAcomp.data)}</strong>?{" "}
-                {deletingAcomp.anexos > 0
-                  ? `Os ${deletingAcomp.anexos} anexo(s) vinculados e a pasta correspondente no servidor também serão excluídos permanentemente.`
-                  : "A pasta correspondente no servidor (se houver) também será removida."}
+                <strong>{fmtDate(deletingAcomp.data)}</strong>?
               </DialogDescription>
             </DialogHeader>
             <div className="flex justify-end gap-2">
